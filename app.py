@@ -1,11 +1,9 @@
 """
 app.py - StreamCanvas main entry point.
-Provides two top-level modes:
-  • Builder Mode  — graphical UI tree editor
-  • Renderer Mode — pure JSON → Streamlit renderer
-  • Data Sources  — upload and manage raw data
-  • Dataset Builder — transform data
-  • Persistence   — save / load dashboards
+Provides three top-level pages:
+  • Builder   — integrated visual canvas, property editor, preview & save
+  • Data Sources  — upload and manage raw data files
+  • Dataset Builder — transform / filter data
 
 Run with: streamlit run app.py
 """
@@ -24,17 +22,21 @@ st.set_page_config(
 
 # ─── Local imports ────────────────────────────────────────────────────────────
 from utils import state_manager as sm
-from utils.id_generator import generate_id, generate_stable_key
+from utils.id_generator import generate_id
 from modules.component_registry import COMPONENT_META, get_component_types
-from modules.layout_manager import render_tree_panel
-from modules.render_engine import render_dashboard
+from modules.render_engine import render_dashboard, build_datasets
 from modules.data_sources import render_data_sources_page
 from modules.dataset_builder import render_dataset_builder_page, get_dataset_names
 from modules.chart_builder import render_chart_builder
-from modules.persistence import render_persistence_page
+from modules.persistence import save_dashboard, load_all_dashboards, load_dashboard, delete_dashboard
+from modules.visual_builder import render_builder_canvas, build_new_node, reassign_ids
 
 # ─── Initialise session state ─────────────────────────────────────────────────
 sm.init_state()
+if "builder_preview_mode" not in st.session_state:
+    st.session_state["builder_preview_mode"] = False
+if "adding_to_node_id" not in st.session_state:
+    st.session_state["adding_to_node_id"] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,10 +54,8 @@ def render_sidebar() -> str:
             "Navigation",
             [
                 "🏗️ Builder",
-                "▶️ Renderer",
                 "📂 Data Sources",
                 "🔧 Dataset Builder",
-                "💾 Persistence",
             ],
             key="nav_page",
         )
@@ -66,22 +66,8 @@ def render_sidebar() -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Builder Mode
+# Property editor helpers (used in the right panel of Builder Mode)
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _build_new_node(comp_type: str) -> dict:
-    """Create a new node dict with defaults for the given component type."""
-    meta = COMPONENT_META.get(comp_type, {})
-    props = {}
-    for prop in meta.get("props_schema", []):
-        props[prop["name"]] = prop.get("default", "")
-    return {
-        "id": generate_id(comp_type),
-        "type": comp_type,
-        "props": props,
-        "children": [],
-    }
-
 
 def _render_prop_editor(node: dict) -> None:
     """Render dynamic prop editors for the selected node."""
@@ -146,141 +132,187 @@ def _render_prop_editor(node: dict) -> None:
     node["props"] = props
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Inline save widget (used in preview mode)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_inline_save() -> None:
+    """Compact save panel shown at the bottom of the preview screen."""
+    st.divider()
+    with st.container(border=True):
+        st.caption("💾 **Save Dashboard**")
+        col_name, col_save, col_export = st.columns([3, 1, 1])
+        with col_name:
+            dash_name = st.text_input(
+                "Dashboard name",
+                key="inline_save_name",
+                label_visibility="collapsed",
+                placeholder="Dashboard name…",
+            )
+        with col_save:
+            if st.button("💾 Save", key="inline_save_btn", use_container_width=True, type="primary"):
+                if not dash_name.strip():
+                    st.warning("Enter a dashboard name.")
+                else:
+                    config = {
+                        "ui_tree": sm.get_ui_tree(),
+                        "datasets": sm.get("datasets", {}),
+                    }
+                    dash_id = save_dashboard(dash_name.strip(), config)
+                    if dash_id:
+                        st.success(f"Saved as **{dash_name}** (`{dash_id[:8]}…`)")
+        with col_export:
+            config_export = {
+                "ui_tree": sm.get_ui_tree(),
+                "datasets": sm.get("datasets", {}),
+            }
+            st.download_button(
+                label="⬇️ Export",
+                data=json.dumps(config_export, indent=2),
+                file_name="dashboard_export.json",
+                mime="application/json",
+                key="inline_export_btn",
+                use_container_width=True,
+            )
+
+        # Saved dashboards quick-load
+        with st.expander("📂 Saved Dashboards", expanded=False):
+            dashboards = load_all_dashboards()
+            if not dashboards:
+                st.info("No saved dashboards yet.")
+            for dash in dashboards:
+                dc1, dc2, dc3, dc4 = st.columns([3, 2, 1, 1])
+                dc1.write(f"**{dash['name']}**")
+                dc2.caption(dash["created_at"][:19].replace("T", " "))
+                if dc3.button("Load", key=f"inline_load_{dash['id']}"):
+                    config = load_dashboard(dash["id"])
+                    if config:
+                        sm.set_ui_tree(config.get("ui_tree", sm.DEFAULT_UI_TREE.copy()))
+                        if "datasets" in config:
+                            sm.set_value("datasets", config["datasets"])
+                        st.session_state["builder_preview_mode"] = False
+                        st.rerun()
+                if dc4.button("Del", key=f"inline_del_{dash['id']}"):
+                    delete_dashboard(dash["id"])
+                    st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Builder Mode
+# ─────────────────────────────────────────────────────────────────────────────
+
 def render_builder_page() -> None:
-    """Render the full Builder Mode page."""
+    """
+    Render the integrated Builder page.
+
+    Build mode  — visual canvas (left) + property editor (right) + Preview button.
+    Preview mode — full rendered dashboard + Save/Export controls + Back button.
+    """
     tree = sm.get_ui_tree()
-    selected_id = sm.get_selected_node_id()
+    is_preview = st.session_state.get("builder_preview_mode", False)
 
-    # ── Two-column layout: tree | editor ─────────────────────────────────
-    col_tree, col_editor = st.columns([1, 2])
+    # Resolve datasets once per render pass
+    resolved_datasets = build_datasets(sm.get("datasets", {}))
 
-    # ── Left: Component Tree ──────────────────────────────────────────────
-    with col_tree:
-        st.subheader("🌳 Component Tree")
-        render_tree_panel(tree)
+    if is_preview:
+        # ── Preview Mode ─────────────────────────────────────────────────────
+        st.subheader("👁️ Preview")
+        st.caption("This is how your dashboard will look when rendered.")
+        st.divider()
+
+        render_dashboard({"ui_tree": tree, "datasets": sm.get("datasets", {})})
+
+        _render_inline_save()
 
         st.divider()
-        st.subheader("➕ Add Component")
+        if st.button("← Back to Builder", key="preview_exit_btn"):
+            st.session_state["builder_preview_mode"] = False
+            st.rerun()
 
-        comp_type = st.selectbox(
-            "Component type",
-            get_component_types(),
-            key="builder_comp_type",
-        )
+    else:
+        # ── Build Mode ────────────────────────────────────────────────────────
+        col_canvas, col_props = st.columns([3, 2])
 
-        # Choose parent node
-        parent_id_options = [tree["id"]] + _collect_container_ids(tree)
-        parent_id = st.selectbox(
-            "Add inside node",
-            parent_id_options,
-            key="builder_parent_id",
-        )
+        with col_canvas:
+            st.subheader("🎨 Canvas")
+            render_builder_canvas(tree, resolved_datasets)
 
-        if st.button("Add Component", key="builder_add_btn"):
-            new_node = _build_new_node(comp_type)
-            if sm.add_child_node(tree, parent_id, new_node):
-                sm.set_ui_tree(tree)
-                sm.set_selected_node_id(new_node["id"])
-                st.rerun()
-            else:
-                st.error(f"Could not find parent node '{parent_id}'.")
+        with col_props:
+            selected_id = sm.get_selected_node_id()
+            if selected_id is None:
+                st.subheader("⚙️ Properties")
+                st.info("Click ✏️ on a component in the canvas to edit its properties here.")
 
-    # ── Right: Property Editor ────────────────────────────────────────────
-    with col_editor:
-        st.subheader("✏️ Property Editor")
-
-        if selected_id is None:
-            st.info("Select a node in the tree to edit its properties.")
-        else:
-            node = sm.find_node(tree, selected_id)
-            if node is None:
-                st.warning(f"Node '{selected_id}' not found in tree.")
-            else:
-                st.write(f"**Editing:** `{node['type']}` — `{selected_id}`")
-
-                _render_prop_editor(node)
-
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    if st.button("💾 Save", key="prop_save"):
-                        sm.set_ui_tree(tree)
-                        st.success("Properties saved.")
-                        st.rerun()
-
-                with col2:
-                    if st.button("📋 Duplicate", key="prop_duplicate"):
-                        parent = sm.find_parent(tree, selected_id)
-                        if parent is not None:
-                            dup = copy.deepcopy(node)
-                            dup["id"] = generate_id(node["type"])
-                            _reassign_ids(dup)
-                            parent.setdefault("children", []).append(dup)
-                            sm.set_ui_tree(tree)
+                # Raw JSON editor when nothing is selected
+                with st.expander("🔍 Raw JSON", expanded=False):
+                    raw_json = st.text_area(
+                        "UI Tree JSON",
+                        value=json.dumps(tree, indent=2),
+                        height=300,
+                        key="raw_json_editor",
+                    )
+                    if st.button("Apply JSON", key="apply_raw_json"):
+                        try:
+                            new_tree = json.loads(raw_json)
+                            sm.set_ui_tree(new_tree)
+                            st.success("JSON applied.")
                             st.rerun()
+                        except json.JSONDecodeError as exc:
+                            st.error(f"Invalid JSON: {exc}")
+            else:
+                node = sm.find_node(tree, selected_id)
+                if node is None:
+                    st.warning(f"Node '{selected_id}' not found in tree.")
+                    sm.set_selected_node_id(None)
+                else:
+                    st.subheader("⚙️ Properties")
+                    st.markdown(
+                        f"Editing **`{node['type']}`** — <small>`{selected_id}`</small>",
+                        unsafe_allow_html=True,
+                    )
+                    st.divider()
 
-                with col3:
-                    if st.button("🗑️ Delete", key="prop_delete"):
-                        if selected_id == "root":
-                            st.error("Cannot delete the root node.")
-                        else:
-                            sm.delete_node(tree, selected_id)
-                            sm.set_selected_node_id(None)
+                    _render_prop_editor(node)
+
+                    st.divider()
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        if st.button("💾 Apply", key="prop_save", type="primary", use_container_width=True):
                             sm.set_ui_tree(tree)
+                            st.success("Properties applied.")
                             st.rerun()
+                    with c2:
+                        if st.button("📋 Duplicate", key="prop_duplicate", use_container_width=True):
+                            parent = sm.find_parent(tree, selected_id)
+                            if parent is not None:
+                                dup = copy.deepcopy(node)
+                                dup["id"] = generate_id(node["type"])
+                                reassign_ids(dup)
+                                parent.setdefault("children", []).append(dup)
+                                sm.set_ui_tree(tree)
+                                st.rerun()
+                    with c3:
+                        if st.button("🗑️ Delete", key="prop_delete", use_container_width=True):
+                            if selected_id == "root":
+                                st.error("Cannot delete the root node.")
+                            else:
+                                sm.delete_node(tree, selected_id)
+                                sm.set_selected_node_id(None)
+                                sm.set_ui_tree(tree)
+                                st.rerun()
 
-    # ── JSON viewer / editor ──────────────────────────────────────────────
-    st.divider()
-    with st.expander("🔍 View / Edit Raw JSON", expanded=False):
-        raw_json = st.text_area(
-            "UI Tree JSON",
-            value=json.dumps(tree, indent=2),
-            height=300,
-            key="raw_json_editor",
-        )
-        if st.button("Apply JSON", key="apply_raw_json"):
-            try:
-                new_tree = json.loads(raw_json)
-                sm.set_ui_tree(new_tree)
-                st.success("JSON applied.")
+        # ── Bottom bar: Preview button ─────────────────────────────────────
+        st.divider()
+        _, mid, _ = st.columns([2, 2, 2])
+        with mid:
+            if st.button(
+                "👁️ Preview Dashboard",
+                key="preview_btn",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state["builder_preview_mode"] = True
                 st.rerun()
-            except json.JSONDecodeError as exc:
-                st.error(f"Invalid JSON: {exc}")
-
-
-def _collect_container_ids(tree: dict) -> list:
-    """Return IDs of all container-capable nodes (for parent selection)."""
-    result = []
-    for child in tree.get("children", []):
-        meta = COMPONENT_META.get(child.get("type", ""), {})
-        if meta.get("can_have_children", False):
-            result.append(child["id"])
-            result.extend(_collect_container_ids(child))
-    return result
-
-
-def _reassign_ids(node: dict) -> None:
-    """Recursively assign new IDs to a node and all descendants (for duplicate)."""
-    node["id"] = generate_id(node.get("type", "node"))
-    for child in node.get("children", []):
-        _reassign_ids(child)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Renderer Mode
-# ─────────────────────────────────────────────────────────────────────────────
-
-def render_renderer_page() -> None:
-    """Render the Renderer Mode page (pure JSON → UI)."""
-    st.header("▶️ Dashboard Renderer")
-    st.caption("Renders the current UI tree deterministically from JSON.")
-    st.divider()
-
-    config = {
-        "ui_tree": sm.get_ui_tree(),
-        "datasets": sm.get("datasets", {}),
-    }
-    render_dashboard(config)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -292,21 +324,15 @@ def main() -> None:
 
     if page == "🏗️ Builder":
         st.header("🏗️ Builder Mode")
-        st.caption("Design your dashboard visually. Changes are stored as JSON.")
+        st.caption("Design your dashboard visually. Click ✏️ to edit, 🗑️ to delete, ➕ to add.")
         st.divider()
         render_builder_page()
-
-    elif page == "▶️ Renderer":
-        render_renderer_page()
 
     elif page == "📂 Data Sources":
         render_data_sources_page()
 
     elif page == "🔧 Dataset Builder":
         render_dataset_builder_page()
-
-    elif page == "💾 Persistence":
-        render_persistence_page()
 
 
 if __name__ == "__main__":
