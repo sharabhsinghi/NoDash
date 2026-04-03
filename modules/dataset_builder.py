@@ -15,7 +15,7 @@ from utils.transformations import execute_pipeline
 
 # ─── Execution engine ─────────────────────────────────────────────────────────
 
-def execute_dataset(dataset_config: Dict, data_sources: Optional[Dict] = None) -> Optional[pd.DataFrame]:
+def execute_dataset(dataset_config: Dict) -> Optional[pd.DataFrame]:
     """
     Execute a dataset config against the registered data sources.
     dataset_config: {

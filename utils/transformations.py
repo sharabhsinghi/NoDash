@@ -28,7 +28,6 @@ def apply_calculated_column(df: pd.DataFrame, params: Dict) -> pd.DataFrame:
     name = params.get("name", "").strip()
     expression = params.get("expression", "").strip()
     if name and expression:
-        df = df.copy()
         df[name] = df.eval(expression)
     return df
 

@@ -79,7 +79,7 @@ def _build_new_node(comp_type: str) -> dict:
         "id": generate_id(comp_type),
         "type": comp_type,
         "props": props,
-        "children": [] if meta.get("can_have_children", False) else [],
+        "children": [],
     }
 
 
