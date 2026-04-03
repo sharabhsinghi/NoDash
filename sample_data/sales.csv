@@ -1,0 +1,17 @@
+month,product,region,sales,units
+Jan,Widget A,North,12000,240
+Jan,Widget B,North,8500,170
+Jan,Widget A,South,9800,196
+Jan,Widget B,South,7200,144
+Feb,Widget A,North,13500,270
+Feb,Widget B,North,9100,182
+Feb,Widget A,South,11000,220
+Feb,Widget B,South,8300,166
+Mar,Widget A,North,14200,284
+Mar,Widget B,North,9800,196
+Mar,Widget A,South,12500,250
+Mar,Widget B,South,9000,180
+Apr,Widget A,North,15000,300
+Apr,Widget B,North,10500,210
+Apr,Widget A,South,13200,264
+Apr,Widget B,South,9700,194

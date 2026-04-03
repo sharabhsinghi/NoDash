@@ -1,0 +1,94 @@
+{
+  "ui_tree": {
+    "id": "root",
+    "type": "container",
+    "props": {"label": "Root", "border": false},
+    "children": [
+      {
+        "id": "header_main",
+        "type": "header",
+        "props": {"text": "Sales Dashboard", "level": 1},
+        "children": []
+      },
+      {
+        "id": "divider_1",
+        "type": "divider",
+        "props": {},
+        "children": []
+      },
+      {
+        "id": "cols_metrics",
+        "type": "columns",
+        "props": {"ratios": "1,1,1"},
+        "children": [
+          {
+            "id": "metric_sales",
+            "type": "metric",
+            "props": {"label": "Total Sales", "value": "$82,800", "delta": "+12%", "column_index": 0},
+            "children": []
+          },
+          {
+            "id": "metric_units",
+            "type": "metric",
+            "props": {"label": "Total Units", "value": "3,720", "delta": "+8%", "column_index": 1},
+            "children": []
+          },
+          {
+            "id": "metric_regions",
+            "type": "metric",
+            "props": {"label": "Regions", "value": "2", "delta": "", "column_index": 2},
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "tabs_main",
+        "type": "tabs",
+        "props": {"tab_labels": "Charts,Data Table,About"},
+        "children": [
+          {
+            "id": "chart_bar",
+            "type": "plotly_chart",
+            "props": {
+              "dataset": "Monthly Sales",
+              "chart_type": "bar",
+              "x": "month",
+              "y": "sales",
+              "title": "Monthly Sales by Region",
+              "use_container_width": true,
+              "tab_index": 0
+            },
+            "children": []
+          },
+          {
+            "id": "df_sales",
+            "type": "dataframe",
+            "props": {
+              "dataset": "Monthly Sales",
+              "max_rows": 50,
+              "use_container_width": true,
+              "tab_index": 1
+            },
+            "children": []
+          },
+          {
+            "id": "md_about",
+            "type": "markdown",
+            "props": {
+              "content": "## About\nThis demo dashboard uses the **Monthly Sales** dataset.\n\n- Built with StreamCanvas\n- Powered by Streamlit + Plotly\n- JSON-driven, no code required",
+              "tab_index": 2
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "datasets": {
+    "Monthly Sales": {
+      "name": "Monthly Sales",
+      "source": "sales.csv",
+      "transformations": []
+    }
+  }
+}
