@@ -372,7 +372,7 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
         with st.container(border=border):
             children = node.get("children", [])
             if not children:
-                st.caption("*Empty container — use ➕ in sidebar or click below to add*")
+                st.caption("*Empty container — use ➕ in sidebar or the button below to add*")
             for child in children:
                 render_canvas_node(child, datasets, depth=depth + 1)
         render_add_widget(node_id, "➕")
@@ -411,7 +411,7 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
         tabs_objs = st.tabs(labels)
         if not children:
             with tabs_objs[0]:
-                st.caption("*Empty tab — use ➕ in sidebar or click below to add*")
+                st.caption("*Empty tab — use ➕ in sidebar or the button below to add*")
         else:
             for child in children:
                 tab_idx = int(child.get("props", {}).get("tab_index", 0))
@@ -424,7 +424,7 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
     elif is_container:
         children = node.get("children", [])
         if not children:
-            st.caption("*Empty — use ➕ in sidebar or click below to add*")
+            st.caption("*Empty — use ➕ in sidebar or the button below to add*")
         for child in children:
             render_canvas_node(child, datasets, depth=depth + 1)
         render_add_widget(node_id, "➕")
@@ -461,6 +461,8 @@ def render_builder_canvas(tree: Dict, datasets: Dict) -> None:
             label_visibility="collapsed",
         )
         if st.button("➕ Add to canvas", key="sidebar_add_btn", use_container_width=True, type="primary"):
+            # Pre-select the component type chosen in the sidebar inside the dialog
+            st.session_state["dlg_add_comp_type"] = comp_type_sidebar
             _show_add_dialog(tree["id"])
         st.divider()
 
