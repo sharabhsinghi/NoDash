@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="StreamCanvas",
     page_icon="🎨",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ─── Local imports ────────────────────────────────────────────────────────────
@@ -38,23 +38,18 @@ if "builder_preview_mode" not in st.session_state:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def render_sidebar() -> str:
-    """Render sidebar navigation and return the selected page."""
+    """Render compact sidebar navigation and return the selected page."""
     with st.sidebar:
-        st.title("🎨 StreamCanvas")
-        st.caption("No-code Streamlit UI Builder")
-        st.divider()
-
         page = st.radio(
-            "Navigation",
+            "Navigate",
             [
                 "🏗️ Builder",
                 "📂 Data Sources",
                 "🔧 Dataset Builder",
             ],
             key="nav_page",
+            label_visibility="collapsed",
         )
-
-        st.divider()
         st.caption("StreamCanvas v1.0.0")
     return page
 
@@ -201,9 +196,6 @@ def main() -> None:
     page = render_sidebar()
 
     if page == "🏗️ Builder":
-        st.header("🏗️ Builder Mode")
-        st.caption("Design your dashboard visually. Click ✏️ to edit, 🗑️ to delete, ➕ to add.")
-        st.divider()
         render_builder_page()
 
     elif page == "📂 Data Sources":
