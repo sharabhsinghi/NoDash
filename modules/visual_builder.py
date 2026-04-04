@@ -339,11 +339,11 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
     Render a single node with minimal builder chrome.
 
     The component is rendered exactly as it will appear in the final
-    dashboard.  Above it sits a slim chrome row:
-      label  |  ✏️ (opens Edit dialog)  |  🗑️ (deletes immediately)
+    dashboard.  A compact ⋮ popover sits next to the node label, providing
+    Edit and Delete actions without cluttering the canvas.
 
-    Container nodes additionally show a ➕ button at the bottom of their
-    content area so children can be added inline.
+    Container nodes additionally show a compact ➕ button at the bottom of
+    their content area so children can be added inline.
     """
     node_id = node["id"]
     comp_type = node.get("type", "")
@@ -351,20 +351,20 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
     is_container = meta.get("can_have_children", False)
 
     # ── Slim chrome row ───────────────────────────────────────────────────
-    lbl_col, edit_col, del_col = st.columns([6, 1, 1])
+    lbl_col, menu_col = st.columns([10, 1])
     with lbl_col:
         st.caption(_node_display_label(node))
-    with edit_col:
-        if st.button("✏️", key=f"edit_{node_id}", help="Edit component"):
-            _show_edit_dialog(node_id)
-    with del_col:
-        if st.button("🗑️", key=f"del_{node_id}", help="Delete component"):
-            tree = sm.get_ui_tree()
-            sm.delete_node(tree, node_id)
-            sm.set_ui_tree(tree)
-            if sm.get_selected_node_id() == node_id:
-                sm.set_selected_node_id(None)
-            st.rerun()
+    with menu_col:
+        with st.popover("⋮", use_container_width=False, help="Edit or delete"):
+            if st.button("✏️ Edit", key=f"edit_{node_id}", use_container_width=True):
+                _show_edit_dialog(node_id)
+            if st.button("🗑️ Delete", key=f"del_{node_id}", use_container_width=True):
+                tree = sm.get_ui_tree()
+                sm.delete_node(tree, node_id)
+                sm.set_ui_tree(tree)
+                if sm.get_selected_node_id() == node_id:
+                    sm.set_selected_node_id(None)
+                st.rerun()
 
     # ── Component body ────────────────────────────────────────────────────
     if comp_type == "container":
@@ -372,10 +372,10 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
         with st.container(border=border):
             children = node.get("children", [])
             if not children:
-                st.caption("*Empty container — click ➕ to add a component*")
+                st.caption("*Empty container — use ➕ in sidebar or the button below to add*")
             for child in children:
                 render_canvas_node(child, datasets, depth=depth + 1)
-        render_add_widget(node_id, "➕ Add inside container")
+        render_add_widget(node_id, "➕")
 
     elif comp_type == "columns":
         ratios_raw = node.get("props", {}).get("ratios", "1,1")
@@ -399,7 +399,7 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
                 with cols_objs[col_idx]:
                     render_canvas_node(child, datasets, depth=depth + 1)
 
-        render_add_widget(node_id, "➕ Add to columns")
+        render_add_widget(node_id, "➕")
 
     elif comp_type == "tabs":
         labels_raw = node.get("props", {}).get("tab_labels", "Tab 1,Tab 2")
@@ -411,7 +411,7 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
         tabs_objs = st.tabs(labels)
         if not children:
             with tabs_objs[0]:
-                st.caption("*Empty tab — click ➕ to add a component*")
+                st.caption("*Empty tab — use ➕ in sidebar or the button below to add*")
         else:
             for child in children:
                 tab_idx = int(child.get("props", {}).get("tab_index", 0))
@@ -419,15 +419,15 @@ def render_canvas_node(node: Dict, datasets: Dict, depth: int = 0) -> None:
                 with tabs_objs[tab_idx]:
                     render_canvas_node(child, datasets, depth=depth + 1)
 
-        render_add_widget(node_id, "➕ Add to tabs")
+        render_add_widget(node_id, "➕")
 
     elif is_container:
         children = node.get("children", [])
         if not children:
-            st.caption("*Empty — click ➕ to add a component*")
+            st.caption("*Empty — use ➕ in sidebar or the button below to add*")
         for child in children:
             render_canvas_node(child, datasets, depth=depth + 1)
-        render_add_widget(node_id, "➕ Add inside")
+        render_add_widget(node_id, "➕")
 
     else:
         # Leaf node: render the actual Streamlit component
@@ -440,13 +440,40 @@ def render_builder_canvas(tree: Dict, datasets: Dict) -> None:
     """
     Render the full builder canvas.
 
-    Iterates the root node's children and renders each with minimal builder
-    chrome.  A ➕ button at the bottom lets users add root-level components.
+    The sidebar shows a compact navigation menu and a component-library
+    panel so users can add components without cluttering the canvas.
+    The canvas itself only contains the actual components with minimal
+    per-node chrome (a ⋮ popover for edit/delete).
     """
+    # ── Sidebar: navigation + component library ───────────────────────────
+    with st.sidebar:
+        st.caption("🎨 **StreamCanvas**")
+        st.divider()
+        st.caption("**📦 Component Library**")
+        comp_type_sidebar = st.selectbox(
+            "Pick a component",
+            get_component_types(),
+            format_func=lambda t: (
+                f"{COMPONENT_META.get(t, {}).get('icon', '🧩')}  "
+                f"{COMPONENT_META.get(t, {}).get('label', t)}"
+            ),
+            key="sidebar_comp_type",
+            label_visibility="collapsed",
+        )
+        if st.button("➕ Add to canvas", key="sidebar_add_btn", use_container_width=True, type="primary"):
+            # Pre-select the component type chosen in the sidebar inside the dialog
+            st.session_state["dlg_add_comp_type"] = comp_type_sidebar
+            _show_add_dialog(tree["id"])
+        st.divider()
+
+    # ── Compact top bar ───────────────────────────────────────────────────
+    st.caption("🏗️ **Builder** — hover a component and click ⋮ to edit or delete")
+
+    # ── Canvas ────────────────────────────────────────────────────────────
     children = tree.get("children", [])
 
     if not children:
-        st.info("🎨 Your canvas is empty. Click ➕ Add Component below to get started!")
+        st.info("🎨 Canvas is empty. Pick a component in the sidebar and click ➕ Add to canvas.")
     else:
         for child in children:
             render_canvas_node(child, datasets, depth=0)

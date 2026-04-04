@@ -346,5 +346,31 @@ def get_renderer(component_type: str) -> Optional[Callable]:
 
 
 def get_component_types() -> List[str]:
-    """Return a sorted list of all registered component types."""
-    return sorted(_RENDERER_REGISTRY.keys())
+    """Return component types ordered by how frequently a user would add them.
+
+    Layout containers come first, then data-display components, then content
+    elements, and finally input widgets.
+    """
+    ordered = [
+        # Layout / structural (added most often as scaffolding)
+        "container",
+        "columns",
+        "tabs",
+        # Data display
+        "plotly_chart",
+        "dataframe",
+        "metric",
+        # Content / text
+        "header",
+        "markdown",
+        "text",
+        "divider",
+        # Input widgets
+        "button",
+        "selectbox",
+        "radio",
+        "checkbox",
+    ]
+    # Include any registered types not explicitly listed, sorted alphabetically
+    extras = sorted(t for t in _RENDERER_REGISTRY if t not in ordered)
+    return ordered + extras
